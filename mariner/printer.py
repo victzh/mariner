@@ -183,21 +183,51 @@ class ChiTuPrinter:
         self._send((f"M6040 I{delay_in_ms}").encode())
 
     def _send_and_read(self, data: bytes, timeout_secs: Optional[float] = None) -> str:
-        self._serial_port.reset_input_buffer()
-        self._serial_port.reset_output_buffer()
+        """
+        Send a command and read its response.
 
+        Protocol rule:
+        - Response may be multi-line.
+        - The response ends at the first line whose first non-space characters
+        are 'ok' or 'Error'.
+        - Any bytes after that line belong to the *next* response and must stay
+        in the serial buffer.
+        """
+
+        # Do NOT reset_input_buffer/reset_output_buffer here, or we may
+        # destroy data that belongs to the next command.
+
+        # Send command
         self._send(data + b"\r\n")
 
         original_timeout = self._serial_port.timeout
         if timeout_secs is not None:
             self._serial_port.timeout = timeout_secs
-        response = self._serial_port.readline().decode("utf-8")
-        if timeout_secs is not None:
-            self._serial_port.timeout = original_timeout
-        # TODO actually read the rest of the response instead of just
-        # flushing it like this
-        self._serial_port.read(size=1024)
-        return response
+
+        try:
+            lines: list[str] = []
+
+            while True:
+                raw = self._serial_port.readline()
+                if not raw:
+                    # Timeout or no more data
+                    break
+
+                line = raw.decode("utf-8", errors="replace")
+                lines.append(line)
+
+                stripped = line.lstrip()
+
+                # Termination condition for this protocol:
+                # end of *this* response, start of the next.
+                if stripped.startswith("ok") or stripped.startswith("Error"):
+                    break
+
+            return "".join(lines)
+
+        finally:
+            if timeout_secs is not None:
+                self._serial_port.timeout = original_timeout
 
     def _send(self, data: bytes) -> None:
         self._serial_port.write(data)
