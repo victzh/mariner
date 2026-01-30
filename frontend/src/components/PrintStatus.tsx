@@ -242,7 +242,7 @@ class PrintStatus extends React.Component<
           </Box>
         </Box>
 
-        <div className={classes.gridRoot}
+        <div
           sx={{
             flexGrow: 1,
             padding: 12,
